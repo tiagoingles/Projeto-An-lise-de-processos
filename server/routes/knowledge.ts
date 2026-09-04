@@ -4,6 +4,9 @@ import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/client.js';
 import { requireAuth } from '../lib/auth.js';
+import { indexPrecedent, indexRule, indexRulesBatch } from '../lib/rag.js';
+
+const INDEXED_RULE_FIELDS = ['title', 'description', 'content', 'citationOrArticle', 'theme', 'category'];
 
 export const knowledgeRouter = Router();
 knowledgeRouter.use(requireAuth);
@@ -57,11 +60,13 @@ knowledgeRouter.post('/rules', async (req, res) => {
   if (many.success) {
     const rows = many.data.rules.map((r) => toRuleRow(r, email));
     await db.insert(schema.rules).values(rows).onConflictDoNothing();
+    void indexRulesBatch(rows.map((r) => r.id));
     return res.json({ created: rows.length, rules: rows });
   }
   if (one.success) {
     const row = toRuleRow(one.data, email);
     await db.insert(schema.rules).values(row).onConflictDoNothing();
+    void indexRule(row.id).catch(() => {});
     return res.json(row);
   }
   res.status(400).json({ error: 'Dados de regra inválidos.' });
@@ -76,6 +81,9 @@ knowledgeRouter.patch('/rules/:id', async (req, res) => {
     .where(eq(schema.rules.id, req.params.id))
     .returning();
   if (!row) return res.status(404).json({ error: 'Regra não encontrada.' });
+  if (Object.keys(patch.data).some((k) => INDEXED_RULE_FIELDS.includes(k))) {
+    void indexRule(row.id).catch(() => {});
+  }
   res.json(row);
 });
 
@@ -121,6 +129,7 @@ knowledgeRouter.post('/precedents', async (req, res) => {
     .insert(schema.precedents)
     .values(row)
     .onConflictDoUpdate({ target: schema.precedents.id, set: row });
+  void indexPrecedent(row.id).catch(() => {});
   res.json(row);
 });
 

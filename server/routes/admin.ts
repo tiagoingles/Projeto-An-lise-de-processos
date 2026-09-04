@@ -4,6 +4,7 @@ import { desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/client.js';
 import { requireAdmin } from '../lib/auth.js';
+import { reindexAll } from '../lib/rag.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
@@ -77,6 +78,42 @@ adminRouter.get('/usage', async (req, res) => {
     .limit(50);
 
   res.json({ days, byUser, byAction, recent });
+});
+
+/* ------------------------------- Índice RAG -------------------------------- */
+
+adminRouter.get('/rag-status', async (_req, res) => {
+  const [rules] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.rules);
+  const [indexedRules] = await db
+    .select({ n: sql<number>`count(distinct ${schema.ruleChunks.ruleId})::int` })
+    .from(schema.ruleChunks);
+  const [chunks] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.ruleChunks);
+  const [precedents] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.precedents);
+  const [indexedPrec] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.precedentEmbeddings);
+  res.json({
+    rules: rules.n,
+    indexedRules: indexedRules.n,
+    chunks: chunks.n,
+    precedents: precedents.n,
+    indexedPrecedents: indexedPrec.n,
+  });
+});
+
+let reindexRunning = false;
+
+adminRouter.post('/reindex', async (_req, res) => {
+  if (reindexRunning) return res.status(409).json({ error: 'Reindexação já em andamento.' });
+  reindexRunning = true;
+  try {
+    const result = await reindexAll();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message || 'Falha ao reindexar.' });
+  } finally {
+    reindexRunning = false;
+  }
 });
 
 /* ------------------------- Importação do backup antigo --------------------- */
@@ -156,5 +193,10 @@ adminRouter.post('/import-backup', async (req, res) => {
     summary.profile = true;
   }
 
-  res.json({ ok: true, imported: summary });
+  // Indexa o que acabou de entrar (em background — pode levar minutos p/ acervos grandes).
+  if (summary.rules || summary.precedents) {
+    void reindexAll().catch((err) => console.error('[admin] reindex pós-import:', err.message));
+  }
+
+  res.json({ ok: true, imported: summary, reindexing: summary.rules > 0 || summary.precedents > 0 });
 });

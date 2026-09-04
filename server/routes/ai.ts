@@ -1,16 +1,25 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../lib/auth.js';
-import { generateChat, generateStructured } from '../lib/gemini.js';
+import {
+  generateChat,
+  generateChatStream,
+  generateStructured,
+  preparePdfPart,
+  type Part,
+} from '../lib/gemini.js';
 import { getActiveRules, getAllPrecedents, getAllRules, getProfile } from '../lib/repos.js';
+import {
+  hasPrecedentIndex,
+  hasRuleIndex,
+  retrievePrecedents,
+  retrieveRules,
+} from '../lib/rag.js';
 import {
   analyzeProcessResponseSchema,
   buildAnalyzeProcessSystemInstruction,
 } from '../prompts/analyzeProcess.js';
-import {
-  analyzeTopicResponseSchema,
-  buildAnalyzeTopicPrompt,
-} from '../prompts/analyzeTopic.js';
+import { analyzeTopicResponseSchema, buildAnalyzeTopicPrompt } from '../prompts/analyzeTopic.js';
 import { buildChatMessage, buildChatSystemInstruction } from '../prompts/chatProcess.js';
 import {
   buildExtractRealProcessPrompt,
@@ -21,11 +30,21 @@ import {
   buildUploadRulesPrompt,
   uploadRulesResponseSchema,
 } from '../prompts/uploadRules.js';
+import { triagePrompt, triageResponseSchema, triageToQuery, type TriageResult } from '../prompts/triage.js';
+import type { PrecedentRow, RuleRow } from '../prompts/shared.js';
 
 export const aiRouter = Router();
 aiRouter.use(requireAuth);
 
-const cleanPdf = (b64: string) => b64.replace(/^data:application\/pdf;base64,/, '');
+/** Recupera acervo/precedentes relevantes; cai para "tudo" enquanto não há índice. */
+async function gatherContext(query: string): Promise<{ rules: RuleRow[]; precedents: PrecedentRow[] }> {
+  const [ruleIndexed, precIndexed] = await Promise.all([hasRuleIndex(), hasPrecedentIndex()]);
+  const [rules, precedents] = await Promise.all([
+    ruleIndexed ? retrieveRules(query, 14) : getActiveRules(),
+    precIndexed ? retrievePrecedents(query, 6) : getAllPrecedents(),
+  ]);
+  return { rules, precedents };
+}
 
 /* ---------------------------- /analyze-process ----------------------------- */
 
@@ -45,11 +64,23 @@ aiRouter.post('/analyze-process', async (req, res) => {
   const email = req.user!.email;
 
   try {
-    const [rules, precedents, profile] = await Promise.all([
-      getActiveRules(),
-      getAllPrecedents(),
-      getProfile(email),
-    ]);
+    // Fonte do processo, reaproveitada nas duas passadas (upload único se PDF grande).
+    const sourcePart: Part = pdfBase64
+      ? await preparePdfPart(pdfBase64, fileName || 'processo.pdf')
+      : { text: `TEXTO DOS AUTOS DO PROCESSO:\n\n${manualText}` };
+
+    // Passada 1 — triagem barata para montar a consulta de recuperação.
+    const triage = await generateStructured<TriageResult>({
+      action: 'analyze-triage',
+      userEmail: email,
+      parts: [sourcePart, { text: triagePrompt }],
+      responseSchema: triageResponseSchema,
+      temperature: 0.1,
+    });
+
+    const query = triageToQuery(triage, customPromptNotes);
+    const { rules, precedents } = await gatherContext(query);
+    const profile = await getProfile(email);
 
     const systemInstruction = buildAnalyzeProcessSystemInstruction({
       rules,
@@ -58,28 +89,25 @@ aiRouter.post('/analyze-process', async (req, res) => {
       customPromptNotes,
     });
 
-    const parts: ({ text: string } | { inlineData: { mimeType: string; data: string } })[] = [];
-    if (pdfBase64) {
-      parts.push({ inlineData: { mimeType: 'application/pdf', data: cleanPdf(pdfBase64) } });
-      parts.push({
-        text: `Arquivo processual analisado: "${fileName || 'processo.pdf'}".\nLeia todas as páginas deste documento processual, analise as peças, manifestações, datas, certidões e pedidos, e gere a análise completa conforme a estrutura solicitada.`,
-      });
-    } else {
-      parts.push({
-        text: `TEXTO DOS AUTOS DO PROCESSO:\n\n${manualText}\n\nFaça a leitura detalhada deste processo e produza a análise estruturada completa.`,
-      });
-    }
+    // Passada 2 — análise completa com o contexto recuperado.
+    const analysisParts: Part[] = [sourcePart];
+    analysisParts.push({
+      text: pdfBase64
+        ? `Arquivo processual analisado: "${fileName || 'processo.pdf'}".\nLeia todas as páginas, analise as peças, manifestações, datas, certidões e pedidos, e gere a análise completa conforme a estrutura solicitada.`
+        : 'Faça a leitura detalhada deste processo e produza a análise estruturada completa.',
+    });
 
     const analysis = await generateStructured<Record<string, unknown>>({
       action: 'analyze-process',
       userEmail: email,
+      processNumber: triage.numeroProcesso,
       systemInstruction,
-      parts,
+      parts: analysisParts,
       responseSchema: analyzeProcessResponseSchema,
       temperature: 0.2,
     });
 
-    res.json({ success: true, analysis });
+    res.json({ success: true, analysis, retrieval: { rules: rules.length, precedents: precedents.length } });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || 'Erro ao analisar o processo.' });
   }
@@ -93,27 +121,65 @@ const chatInput = z.object({
   history: z.array(z.object({ sender: z.string(), text: z.string() })).default([]),
 });
 
+async function resolveChat(body: z.infer<typeof chatInput>, email: string) {
+  const ctx = body.processContext || {};
+  const query = [ctx.subject, ctx.theme, body.message].filter(Boolean).join('\n');
+  const rules = (await hasRuleIndex()) ? await retrieveRules(query, 10) : await getActiveRules();
+  return {
+    systemInstruction: buildChatSystemInstruction({ processContext: ctx, rules }),
+    message: buildChatMessage(body.message, body.history),
+    processNumber: ctx.processNumber as string | undefined,
+    email,
+  };
+}
+
 aiRouter.post('/chat-process', async (req, res) => {
   const parsed = chatInput.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Mensagem não pode estar vazia.' });
-  const email = req.user!.email;
-
   try {
-    const rules = await getActiveRules();
-    const systemInstruction = buildChatSystemInstruction({
-      processContext: parsed.data.processContext,
-      rules,
-    });
+    const c = await resolveChat(parsed.data, req.user!.email);
     const reply = await generateChat({
       action: 'chat-process',
-      userEmail: email,
-      processNumber: parsed.data.processContext?.processNumber as string | undefined,
-      systemInstruction,
-      message: buildChatMessage(parsed.data.message, parsed.data.history),
+      userEmail: c.email,
+      processNumber: c.processNumber,
+      systemInstruction: c.systemInstruction,
+      message: c.message,
     });
     res.json({ success: true, reply });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message || 'Erro ao responder.' });
+  }
+});
+
+aiRouter.post('/chat-process/stream', async (req, res) => {
+  const parsed = chatInput.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Mensagem não pode estar vazia.' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  const send = (event: string, data: unknown) =>
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    const c = await resolveChat(parsed.data, req.user!.email);
+    await generateChatStream(
+      {
+        action: 'chat-process',
+        userEmail: c.email,
+        processNumber: c.processNumber,
+        systemInstruction: c.systemInstruction,
+        message: c.message,
+      },
+      (delta) => send('delta', delta),
+    );
+    send('done', {});
+  } catch (err) {
+    send('error', (err as Error).message || 'Erro ao responder.');
+  } finally {
+    res.end();
   }
 });
 
@@ -138,14 +204,16 @@ aiRouter.post('/upload-rules-document', async (req, res) => {
   const email = req.user!.email;
 
   try {
-    const promptText = buildUploadRulesPrompt({ fileName, category, theme, subfolderPath, rawText: pdfBase64 ? undefined : rawText });
-    const parts: ({ text: string } | { inlineData: { mimeType: string; data: string } })[] = [];
-    if (pdfBase64) {
-      parts.push({ inlineData: { mimeType: 'application/pdf', data: cleanPdf(pdfBase64) } });
-      parts.push({ text: promptText });
-    } else {
-      parts.push({ text: promptText });
-    }
+    const promptText = buildUploadRulesPrompt({
+      fileName,
+      category,
+      theme,
+      subfolderPath,
+      rawText: pdfBase64 ? undefined : rawText,
+    });
+    const parts: Part[] = pdfBase64
+      ? [await preparePdfPart(pdfBase64, fileName), { text: promptText }]
+      : [{ text: promptText }];
 
     const parsedRules = await generateStructured<any[]>({
       action: 'upload-rules',
@@ -214,13 +282,9 @@ aiRouter.post('/extract-real-process', async (req, res) => {
 
   try {
     const promptText = buildExtractRealProcessPrompt(fileName, pdfBase64 ? undefined : rawText);
-    const parts: ({ text: string } | { inlineData: { mimeType: string; data: string } })[] = [];
-    if (pdfBase64) {
-      parts.push({ inlineData: { mimeType: 'application/pdf', data: cleanPdf(pdfBase64) } });
-      parts.push({ text: promptText });
-    } else {
-      parts.push({ text: promptText });
-    }
+    const parts: Part[] = pdfBase64
+      ? [await preparePdfPart(pdfBase64, fileName), { text: promptText }]
+      : [{ text: promptText }];
 
     const parsedData = await generateStructured<any>({
       action: 'extract-real-process',
@@ -260,11 +324,17 @@ aiRouter.post('/analyze-topic', async (req, res) => {
   const email = req.user!.email;
 
   try {
-    const [rules, precedents] = await Promise.all([getAllRules(), getAllPrecedents()]);
+    const q = parsed.data.topicQuery;
+    const [ruleIndexed, precIndexed] = await Promise.all([hasRuleIndex(), hasPrecedentIndex()]);
+    const [rules, precedents] = await Promise.all([
+      ruleIndexed ? retrieveRules(q, 20) : getAllRules(),
+      precIndexed ? retrievePrecedents(q, 8) : getAllPrecedents(),
+    ]);
+
     const result = await generateStructured<Record<string, unknown>>({
       action: 'analyze-topic',
       userEmail: email,
-      parts: buildAnalyzeTopicPrompt({ topicQuery: parsed.data.topicQuery, rules, precedents }),
+      parts: buildAnalyzeTopicPrompt({ topicQuery: q, rules, precedents }),
       responseSchema: analyzeTopicResponseSchema,
       temperature: 0.1,
     });
@@ -273,4 +343,3 @@ aiRouter.post('/analyze-topic', async (req, res) => {
     res.status(500).json({ error: (err as Error).message || 'Erro na busca temática.' });
   }
 });
-

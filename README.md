@@ -105,7 +105,7 @@ src/
   components/         UI — inclui LoginScreen, AccountBar, AdminPage (novos)
 ```
 
-## O que mudou nesta fase (Sprint 1)
+## Sprint 1 — fundação
 
 - Login Google + lista de autorizados + sessão em cookie httpOnly
 - Acervo, precedentes, temas e histórico saíram do `localStorage` para o Postgres compartilhado
@@ -113,3 +113,17 @@ src/
 - `server.ts` de 950 linhas quebrado em módulos; validação Zod; cliente Gemini com retry e reparo de JSON
 - Tela de Administração: gerenciar e-mails autorizados + painel de uso da equipe
 - Importador do backup antigo
+
+## Sprint 2 — inteligência
+
+- **RAG com pgvector**: `text-embedding-004` indexa o acervo (`rule_chunks`) e os precedentes
+  (`precedent_embeddings`). A análise faz uma triagem barata do processo, monta uma consulta e
+  recupera só os ~14 trechos e ~6 precedentes relevantes — em vez de mandar tudo no prompt.
+  Fallback automático para "acervo completo" enquanto não há índice.
+- **Files API**: PDFs acima de 14 MB (processos SEI de centenas de páginas) sobem pela Files API
+  em vez de irem inline no request; o mesmo arquivo é reaproveitado nas duas passadas.
+- **Streaming**: o chat do processo responde token a token (`/api/chat-process/stream`, SSE).
+- Admin → **Índice de busca**: status da indexação + botão "Reindexar tudo" (rodar após importar
+  o backup). O servidor também indexa embeddings faltantes no start.
+- Requer a extensão `vector` no Postgres (a migration roda `CREATE EXTENSION IF NOT EXISTS vector`;
+  Cloud SQL e Neon já suportam; local precisa do pacote pgvector instalado).

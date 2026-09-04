@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Trash2, Loader2, BarChart3, ShieldCheck, AlertCircle } from 'lucide-react';
+import {
+  UserPlus,
+  Trash2,
+  Loader2,
+  BarChart3,
+  ShieldCheck,
+  AlertCircle,
+  Database,
+  RefreshCw,
+} from 'lucide-react';
 import { api } from '../lib/apiClient';
 
 interface AllowedUser {
@@ -24,10 +33,20 @@ interface UsageData {
   }[];
 }
 
+interface RagStatus {
+  rules: number;
+  indexedRules: number;
+  chunks: number;
+  precedents: number;
+  indexedPrecedents: number;
+}
+
 export const AdminPage: React.FC = () => {
-  const [tab, setTab] = useState<'users' | 'usage'>('users');
+  const [tab, setTab] = useState<'users' | 'usage' | 'index'>('users');
   const [allowed, setAllowed] = useState<AllowedUser[]>([]);
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [rag, setRag] = useState<RagStatus | null>(null);
+  const [reindexing, setReindexing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,12 +56,26 @@ export const AdminPage: React.FC = () => {
 
   const loadUsers = () => api.get<AllowedUser[]>('/api/admin/allowed-users').then(setAllowed);
   const loadUsage = () => api.get<UsageData>('/api/admin/usage?days=30').then(setUsage);
+  const loadRag = () => api.get<RagStatus>('/api/admin/rag-status').then(setRag);
 
   useEffect(() => {
-    Promise.all([loadUsers(), loadUsage()])
+    Promise.all([loadUsers(), loadUsage(), loadRag()])
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const runReindex = async () => {
+    setReindexing(true);
+    setError(null);
+    try {
+      await api.post('/api/admin/reindex');
+      await loadRag();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setReindexing(false);
+    }
+  };
 
   const addUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +117,7 @@ export const AdminPage: React.FC = () => {
       <p className="text-sm text-slate-500 mb-6">Controle de acesso e uso da equipe.</p>
 
       <div className="flex gap-1.5 mb-6">
-        {(['users', 'usage'] as const).map((t) => (
+        {(['users', 'usage', 'index'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -94,7 +127,7 @@ export const AdminPage: React.FC = () => {
                 : 'border-transparent text-slate-600 hover:bg-slate-100'
             }`}
           >
-            {t === 'users' ? 'Usuários autorizados' : 'Uso e auditoria'}
+            {t === 'users' ? 'Usuários autorizados' : t === 'usage' ? 'Uso e auditoria' : 'Índice de busca'}
           </button>
         ))}
       </div>
@@ -242,6 +275,59 @@ export const AdminPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {tab === 'index' && rag && (
+        <div className="space-y-5">
+          <p className="text-sm text-slate-600">
+            A análise e a pesquisa temática usam busca semântica: em vez de mandar o acervo
+            inteiro para a IA a cada consulta, o sistema recupera só os trechos relevantes.
+            Reindexe depois de importar um backup ou de cadastrar muitos documentos de uma vez.
+          </p>
+
+          <div className="grid sm:grid-cols-3 gap-4">
+            {[
+              { label: 'Regras no acervo', value: rag.rules, sub: `${rag.indexedRules} indexadas` },
+              { label: 'Trechos vetorizados', value: rag.chunks, sub: 'chunks de busca' },
+              {
+                label: 'Precedentes',
+                value: rag.precedents,
+                sub: `${rag.indexedPrecedents} indexados`,
+              },
+            ].map((c) => (
+              <div key={c.label} className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="text-2xl font-bold text-slate-900 tabular-nums">{c.value}</div>
+                <div className="text-xs font-semibold text-slate-600 mt-1">{c.label}</div>
+                <div className="text-[11px] text-slate-400">{c.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {(rag.indexedRules < rag.rules || rag.indexedPrecedents < rag.precedents) && (
+            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              Há documentos sem índice. Enquanto isso, as consultas usam o acervo completo
+              (mais lento e caro). Rode a reindexação.
+            </div>
+          )}
+
+          <button
+            onClick={runReindex}
+            disabled={reindexing}
+            className="px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 disabled:opacity-50"
+          >
+            {reindexing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            {reindexing ? 'Reindexando… (pode levar alguns minutos)' : 'Reindexar tudo agora'}
+          </button>
+
+          <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5" /> Embeddings: {rag.chunks} vetores no PostgreSQL (pgvector)
+          </p>
         </div>
       )}
     </div>

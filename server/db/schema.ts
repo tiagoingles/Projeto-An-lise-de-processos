@@ -1,11 +1,16 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
   text,
   timestamp,
+  vector,
 } from 'drizzle-orm/pg-core';
+
+/** Dimensão do modelo de embedding (text-embedding-004 = 768). */
+export const EMBEDDING_DIM = 768;
 
 /**
  * Ferramenta interna de uma equipe só (GEMAP). Não há multi-organização:
@@ -122,3 +127,46 @@ export const usageEvents = pgTable('usage_events', {
   error: text('error'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/* ------------------------------- RAG (pgvector) ---------------------------- */
+
+/** Trechos vetorizados do acervo. Um documento pode gerar vários chunks. */
+export const ruleChunks = pgTable(
+  'rule_chunks',
+  {
+    id: text('id').primaryKey(),
+    ruleId: text('rule_id')
+      .notNull()
+      .references(() => rules.id, { onDelete: 'cascade' }),
+    chunkIndex: integer('chunk_index').notNull().default(0),
+    content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    embIdx: index('rule_chunks_embedding_idx').using(
+      'hnsw',
+      t.embedding.op('vector_cosine_ops'),
+    ),
+    ruleIdx: index('rule_chunks_rule_id_idx').on(t.ruleId),
+  }),
+);
+
+/** Um embedding por precedente (o resumo/tese é curto). */
+export const precedentEmbeddings = pgTable(
+  'precedent_embeddings',
+  {
+    precedentId: text('precedent_id')
+      .primaryKey()
+      .references(() => precedents.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    embIdx: index('precedent_embeddings_idx').using(
+      'hnsw',
+      t.embedding.op('vector_cosine_ops'),
+    ),
+  }),
+);

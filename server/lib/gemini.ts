@@ -5,15 +5,50 @@ import { db, schema } from '../db/client.js';
 
 export { Type } from '@google/genai';
 
-const ai = new GoogleGenAI({
+export const ai = new GoogleGenAI({
   apiKey: env.geminiApiKey,
   httpOptions: { headers: { 'User-Agent': 'sei-gemap-app' } },
 });
 
-const TIMEOUT_MS = 90_000;
+const TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
+/** Acima disso o PDF vai pela Files API em vez de inline no request. */
+const INLINE_PDF_LIMIT = 14 * 1024 * 1024;
 
-type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+export type Part =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+  | { fileData: { mimeType: string; fileUri: string } };
+
+/**
+ * Prepara um PDF (base64) para envio: inline se pequeno, Files API se grande.
+ * Processos do SEI com centenas de páginas passam do limite de inline data.
+ */
+export async function preparePdfPart(base64: string, displayName = 'processo.pdf'): Promise<Part> {
+  const data = base64.replace(/^data:application\/pdf;base64,/, '');
+  const bytes = Buffer.from(data, 'base64');
+
+  if (bytes.byteLength <= INLINE_PDF_LIMIT) {
+    return { inlineData: { mimeType: 'application/pdf', data } };
+  }
+
+  const uploaded = await ai.files.upload({
+    file: new Blob([bytes], { type: 'application/pdf' }),
+    config: { mimeType: 'application/pdf', displayName },
+  });
+
+  // Aguarda o processamento do arquivo (fica PROCESSING por alguns segundos).
+  let file = uploaded;
+  const deadline = Date.now() + 60_000;
+  while (file.state === 'PROCESSING' && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1500));
+    file = await ai.files.get({ name: file.name as string });
+  }
+  if (file.state === 'FAILED' || !file.uri) {
+    throw new Error('Falha ao processar o PDF grande na Files API do Gemini.');
+  }
+  return { fileData: { mimeType: 'application/pdf', fileUri: file.uri } };
+}
 
 interface CallOptions {
   action: string;
@@ -183,6 +218,60 @@ export async function generateChat(opts: {
       status: 'ok',
     });
     return response.text || '';
+  } catch (err) {
+    await recordUsage({
+      userEmail: opts.userEmail,
+      action: opts.action,
+      model,
+      processNumber: opts.processNumber,
+      latencyMs: Date.now() - started,
+      status: 'error',
+      error: String((err as Error)?.message || err),
+    });
+    throw err;
+  }
+}
+
+/** Chat com streaming — chama `onToken` a cada trecho recebido. */
+export async function generateChatStream(
+  opts: {
+    action: string;
+    userEmail: string;
+    processNumber?: string;
+    systemInstruction: string;
+    message: string;
+    temperature?: number;
+  },
+  onToken: (delta: string) => void,
+): Promise<string> {
+  const model = env.geminiModel;
+  const started = Date.now();
+  let full = '';
+  let usage: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number } | undefined;
+  try {
+    const stream = await ai.models.generateContentStream({
+      model,
+      contents: opts.message,
+      config: { systemInstruction: opts.systemInstruction, temperature: opts.temperature ?? 0.3 },
+    });
+    for await (const chunk of stream) {
+      const delta = chunk.text || '';
+      if (delta) {
+        full += delta;
+        onToken(delta);
+      }
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
+    }
+    await recordUsage({
+      userEmail: opts.userEmail,
+      action: opts.action,
+      model,
+      processNumber: opts.processNumber,
+      usage,
+      latencyMs: Date.now() - started,
+      status: 'ok',
+    });
+    return full;
   } catch (err) {
     await recordUsage({
       userEmail: opts.userEmail,

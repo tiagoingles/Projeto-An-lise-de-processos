@@ -45,6 +45,10 @@ async function start() {
 
   app.listen(env.port, '0.0.0.0', () => {
     console.log(`SEI GEMAP · servidor em http://localhost:${env.port}`);
+    // Indexa embeddings que estejam faltando (não bloqueia o start).
+    import('./server/lib/rag.js')
+      .then(({ backfillMissing }) => backfillMissing())
+      .catch((err) => console.error('[server] backfill de embeddings:', err?.message));
   });
 }
 

@@ -52,43 +52,77 @@ export const ProcessChatModal: React.FC<ProcessChatModalProps> = ({
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    const historySnapshot = messages;
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
     setIsLoading(true);
 
+    const assistantId = `assistant-${Date.now()}`;
+    const stamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let streamed = '';
+    let started = false;
+
+    const pushDelta = (delta: string) => {
+      streamed += delta;
+      if (!started) {
+        started = true;
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, sender: 'assistant', text: streamed, timestamp: stamp() },
+        ]);
+      } else {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, text: streamed } : m)),
+        );
+      }
+    };
+
     try {
-      const response = await fetch('/api/chat-process', {
+      const response = await fetch('/api/chat-process/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: query.trim(),
           processContext: analysis,
-          history: messages,
-          contextRules: rules,
+          history: historySnapshot,
         }),
       });
-
-      const data = await response.json();
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => ({}));
         throw new Error(data.error || 'Erro ao comunicar com o assistente.');
       }
 
-      const assistantMsg: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        sender: 'assistant',
-        text: data.reply || 'Sem resposta disponível.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() || '';
+        for (const frame of frames) {
+          const evline = frame.split('\n').find((l) => l.startsWith('event:'));
+          const dataline = frame.split('\n').find((l) => l.startsWith('data:'));
+          if (!evline || !dataline) continue;
+          const event = evline.slice(6).trim();
+          const payload = JSON.parse(dataline.slice(5).trim());
+          if (event === 'delta') pushDelta(payload as string);
+          else if (event === 'error') throw new Error(payload as string);
+        }
+      }
+      if (!started) pushDelta('Sem resposta disponível.');
     } catch (err: any) {
-      const errorMsg: ChatMessage = {
-        id: `error-${Date.now()}`,
-        sender: 'assistant',
-        text: `Erro: ${err.message || 'Falha ao processar solicitação.'}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          sender: 'assistant',
+          text: `Erro: ${err.message || 'Falha ao processar solicitação.'}`,
+          timestamp: stamp(),
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }
