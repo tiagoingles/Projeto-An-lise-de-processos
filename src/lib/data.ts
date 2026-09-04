@@ -43,7 +43,7 @@ export const deleteHistory = (id: string) =>
 /* ----------------------------- Backup / migração -------------------------- */
 export const exportKnowledge = () => api.get<Record<string, unknown>>('/api/knowledge/export');
 export const importBackup = (payload: Record<string, unknown>) =>
-  api.post<{ ok: boolean; imported: Record<string, number | boolean> }>(
+  api.post<{ ok: boolean; imported: Record<string, number | boolean>; reindexing?: boolean }>(
     '/api/admin/import-backup',
     payload,
   );

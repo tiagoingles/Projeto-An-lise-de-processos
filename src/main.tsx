@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import App from './App.tsx';
 import { AuthProvider } from './lib/auth';
+import { ToastProvider } from './lib/toast';
 import './index.css';
 
 function Root() {
@@ -29,9 +30,11 @@ function Root() {
 
   return (
     <GoogleOAuthProvider clientId={clientId}>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ToastProvider>
     </GoogleOAuthProvider>
   );
 }

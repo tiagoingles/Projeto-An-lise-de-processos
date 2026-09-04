@@ -12,26 +12,24 @@ export const AccountBar: React.FC<AccountBarProps> = ({ onToggleAdmin, adminActi
   if (!user) return null;
 
   return (
-    <div className="bg-slate-900 text-slate-300 text-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between">
-        <span className="font-medium tracking-wide text-slate-400">
-          GEMAP · Análise de Processos SEI
-        </span>
-        <div className="flex items-center gap-3">
+    <div className="bg-brand-900 text-xs text-brand-100">
+      <div className="mx-auto flex h-9 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <span className="font-data tracking-wide text-brand-200">GEMAP · Gestão de Processos SEI</span>
+        <div className="flex items-center gap-2">
           {user.role === 'admin' && (
             <button
               onClick={onToggleAdmin}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${
-                adminActive ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'
+              className={`flex items-center gap-1.5 rounded px-2 py-1 transition-colors ${
+                adminActive ? 'bg-brand-600 text-white' : 'text-brand-100 hover:bg-brand-700'
               }`}
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <SlidersHorizontal className="h-3.5 w-3.5" />
               Administração
             </button>
           )}
-          <span className="flex items-center gap-1.5 text-slate-400">
+          <span className="flex items-center gap-1.5 text-brand-100">
             {user.picture ? (
-              <img src={user.picture} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+              <img src={user.picture} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" />
             ) : (
               <ShieldCheck className="w-3.5 h-3.5" />
             )}
@@ -39,9 +37,9 @@ export const AccountBar: React.FC<AccountBarProps> = ({ onToggleAdmin, adminActi
           </span>
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-800 transition-colors"
+            className="flex items-center gap-1.5 rounded px-2 py-1 transition-colors hover:bg-brand-700"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="h-3.5 w-3.5" />
             Sair
           </button>
         </div>

@@ -1,32 +1,98 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────
+   Sistema de design — Análise de Processos SEI · GEMAP
+   Identidade: administrativa, oficial, legível. Sem "cara de template".
+   ───────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-serif: "Lora", Georgia, "Times New Roman", serif;
+
+  --color-paper: #f6f7f9;
+
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7fe;
+  --color-brand-200: #bdd0fc;
+  --color-brand-600: #1f56d6;
+  --color-brand-700: #1a45ac;
+  --color-brand-900: #16306e;
+
+  --color-defere: #1c7a4d;
+  --color-defere-soft: #e6f4ec;
+  --color-indefere: #b23b32;
+  --color-indefere-soft: #fbeae8;
+  --color-diligencia: #9a6a12;
+  --color-diligencia-soft: #f7efdf;
+
+  --radius-card: 0.9rem;
+}
+
 @layer base {
+  html { -webkit-text-size-adjust: 100%; }
+
   body {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #E4E4E7;
-    background-color: #09090B;
+    font-family: var(--font-sans);
+    color: #1b2733;
+    background-color: var(--color-paper);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
-  h1, h2, h3, .font-display {
-    font-family: 'Playfair Display', Georgia, serif;
+  h1, h2, h3, h4 {
+    letter-spacing: -0.014em;
+    text-wrap: balance;
+  }
+
+  /* Textura de "documento oficial" para minutas e despachos SEI */
+  .prose-despacho {
+    font-family: var(--font-serif);
+    font-size: 0.95rem;
+    line-height: 1.75;
+    color: #26333f;
+    white-space: pre-wrap;
+  }
+
+  /* Números de processo, citações legais, dados tabulares */
+  .font-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
   }
 
-  /* Custom dark scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  ::selection {
+    background-color: var(--color-brand-100);
+    color: var(--color-brand-900);
   }
-  ::-webkit-scrollbar-track {
-    background: #09090B;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #27272A;
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-600);
+    outline-offset: 2px;
     border-radius: 3px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #3F3F46;
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #c9d2dc;
+    border-radius: 999px;
+    border: 3px solid var(--color-paper);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #aab6c3; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .rise { animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  @keyframes rise {
+    from { opacity: 0.5; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }

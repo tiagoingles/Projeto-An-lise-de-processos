@@ -54,25 +54,25 @@ export const AnalysisResultView: React.FC<AnalysisResultViewProps> = ({
     switch (outcome) {
       case 'DEFERIMENTO_TOTAL':
         return {
-          bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          bg: 'bg-[var(--color-defere-soft)] text-[var(--color-defere)] border-transparent',
           label: 'Deferimento Total',
           icon: CheckCircle2,
         };
       case 'DEFERIMENTO_PARCIAL':
         return {
-          bg: 'bg-amber-50 text-amber-700 border-amber-200',
+          bg: 'bg-[var(--color-diligencia-soft)] text-[var(--color-diligencia)] border-transparent',
           label: 'Deferimento Parcial',
           icon: AlertTriangle,
         };
       case 'INDEFERIMENTO':
         return {
-          bg: 'bg-rose-50 text-rose-700 border-rose-200',
+          bg: 'bg-[var(--color-indefere-soft)] text-[var(--color-indefere)] border-transparent',
           label: 'Indeferimento',
           icon: ShieldAlert,
         };
       case 'DILIGENCIA_PREVIA':
         return {
-          bg: 'bg-blue-50 text-blue-700 border-blue-200',
+          bg: 'bg-brand-50 text-brand-700 border-brand-200',
           label: 'Conversão em Diligência',
           icon: RefreshCw,
         };
@@ -84,7 +84,7 @@ export const AnalysisResultView: React.FC<AnalysisResultViewProps> = ({
         };
       default:
         return {
-          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+          bg: 'bg-brand-50 text-brand-700 border-brand-200',
           label: 'Decisão Interlocutória / Encaminhamento',
           icon: Scale,
         };
@@ -380,7 +380,7 @@ ${minutaText}
               className="w-full text-xs sm:text-sm font-mono p-4 rounded-xl border border-blue-400 bg-blue-50/20 text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-blue-600/20 leading-relaxed"
             />
           ) : (
-            <div className="p-6 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-mono text-slate-900 whitespace-pre-wrap leading-relaxed shadow-inner">
+            <div className="prose-despacho rounded-xl border border-slate-200 bg-white p-6 shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] sm:p-8">
               {minutaText}
             </div>
           )}

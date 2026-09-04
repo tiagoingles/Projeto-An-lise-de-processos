@@ -17,12 +17,14 @@ import {
   PrecedentProcessItem,
 } from './types';
 import * as data from './lib/data';
-import { api } from './lib/apiClient';
+import { streamSSE } from './lib/apiClient';
 import { useAuth } from './lib/auth';
-import { ShieldAlert, X, Loader2 } from 'lucide-react';
+import { useToast } from './lib/toast';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
+  const toast = useToast();
 
   const [currentTab, setCurrentTab] = useState<
     'analysis' | 'topic' | 'legal-docs' | 'precedents' | 'history'
@@ -36,8 +38,8 @@ export default function App() {
   const [dataLoading, setDataLoading] = useState(true);
   const [activeAnalysis, setActiveAnalysis] = useState<ProcessAnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [progressText, setProgressText] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,7 +63,7 @@ export default function App() {
         setProfile(prof ?? data.DEFAULT_USER_PROFILE);
         setHistory(h);
       })
-      .catch((err) => !cancelled && setErrorMessage(err.message || 'Falha ao carregar os dados.'))
+      .catch((err) => !cancelled && toast.error(err.message || 'Falha ao carregar os dados.'))
       .finally(() => !cancelled && setDataLoading(false));
     return () => {
       cancelled = true;
@@ -78,7 +80,7 @@ export default function App() {
       await data.createRule(rule);
       await reloadRules();
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       await reloadRules();
     }
   };
@@ -89,7 +91,7 @@ export default function App() {
       await data.createRulesBatch(newRules);
       await reloadRules();
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       await reloadRules();
     }
   };
@@ -99,7 +101,7 @@ export default function App() {
     try {
       await data.deleteRule(id);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       await reloadRules();
     }
   };
@@ -112,7 +114,7 @@ export default function App() {
     try {
       await data.updateRule(id, { isActive: next });
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       await reloadRules();
     }
   };
@@ -124,7 +126,7 @@ export default function App() {
       await data.savePrecedent(item);
       setPrecedents(await data.getPrecedents());
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -133,7 +135,7 @@ export default function App() {
     try {
       await data.deletePrecedent(id);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       setPrecedents(await data.getPrecedents());
     }
   };
@@ -145,7 +147,7 @@ export default function App() {
     try {
       setThemes(await data.addTheme(newTheme));
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -157,31 +159,33 @@ export default function App() {
     customPromptNotes?: string;
   }) => {
     setIsAnalyzing(true);
-    setErrorMessage(null);
+    setProgressText('Enviando os autos…');
     try {
-      const res = await api.post<{ analysis: Record<string, unknown> }>('/api/analyze-process', {
-        pdfBase64: payload.pdfBase64,
-        fileName: payload.fileName,
-        manualText: payload.manualText,
-        customPromptNotes: payload.customPromptNotes,
+      let analysis: Record<string, unknown> | null = null;
+      await streamSSE('/api/analyze-process/stream', payload, (event, data_) => {
+        if (event === 'stage') setProgressText(data_ as string);
+        else if (event === 'result') analysis = (data_ as { analysis: Record<string, unknown> }).analysis;
+        else if (event === 'error') throw new Error(data_ as string);
       });
-      if (!res.analysis) throw new Error('O assistente não retornou a estrutura esperada.');
+      if (!analysis) throw new Error('O assistente não retornou a estrutura esperada.');
 
       const fullAnalysis = {
         id: `proc-${Date.now()}`,
         createdAt: new Date().toISOString(),
         fileName: payload.fileName || 'processo_sei.pdf',
-        ...res.analysis,
+        ...analysis,
       } as ProcessAnalysisResult;
 
       setActiveAnalysis(fullAnalysis);
+      setShowAdmin(false);
       setCurrentTab('analysis');
       await data.saveHistory(fullAnalysis);
       setHistory(await data.getHistory());
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao comunicar com o servidor.');
+      toast.error(err.message || 'Erro ao comunicar com o servidor.');
     } finally {
       setIsAnalyzing(false);
+      setProgressText(null);
     }
   };
 
@@ -189,7 +193,6 @@ export default function App() {
     setActiveAnalysis(null);
     setShowAdmin(false);
     setCurrentTab('analysis');
-    setErrorMessage(null);
   };
 
   const handleSelectHistoryProcess = (proc: ProcessAnalysisResult) => {
@@ -204,7 +207,7 @@ export default function App() {
     try {
       await data.deleteHistory(id);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
       setHistory(await data.getHistory());
     }
   };
@@ -235,7 +238,7 @@ export default function App() {
     try {
       await data.saveHistory(updated);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
     }
   };
 
@@ -251,13 +254,13 @@ export default function App() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      toast.error(err.message);
     }
   };
 
   const handleImportKnowledgeClick = () => {
     if (user?.role !== 'admin') {
-      setErrorMessage('Apenas administradores podem importar um backup para a base compartilhada.');
+      toast.error('Apenas administradores podem importar um backup para a base compartilhada.');
       return;
     }
     importFileInputRef.current?.click();
@@ -272,8 +275,9 @@ export default function App() {
         const payload = JSON.parse((event.target?.result as string) || '{}');
         const res = await data.importBackup(payload);
         const imp = res.imported;
-        alert(
-          `Backup importado: ${imp.rules || 0} regras, ${imp.precedents || 0} precedentes, ${imp.themes || 0} temas.`,
+        toast.success(
+          `Backup importado: ${imp.rules || 0} regras, ${imp.precedents || 0} precedentes, ${imp.themes || 0} temas.` +
+            (res.reindexing ? ' Indexando a base para a busca…' : ''),
         );
         const [r, t, p, prof] = await Promise.all([
           data.getRules(),
@@ -286,7 +290,7 @@ export default function App() {
         setPrecedents(p);
         setProfile(prof ?? data.DEFAULT_USER_PROFILE);
       } catch (err: any) {
-        setErrorMessage(err.message || 'Arquivo de backup inválido.');
+        toast.error(err.message || 'Arquivo de backup inválido.');
       }
     };
     reader.readAsText(file);
@@ -296,8 +300,8 @@ export default function App() {
   /* -------------------------------- Render ----------------------------- */
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">
-        <Loader2 className="w-6 h-6 animate-spin" />
+      <div className="flex min-h-screen items-center justify-center bg-paper text-slate-400">
+        <Loader2 className="h-6 w-6 animate-spin" />
       </div>
     );
   }
@@ -305,7 +309,7 @@ export default function App() {
   if (!user) return <LoginScreen />;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="flex min-h-screen flex-col bg-paper text-slate-900">
       <AccountBar
         onToggleAdmin={() => {
           setShowAdmin((v) => !v);
@@ -319,7 +323,6 @@ export default function App() {
         setCurrentTab={(tab) => {
           setCurrentTab(tab);
           setShowAdmin(false);
-          setErrorMessage(null);
         }}
         activeRulesCount={activeRulesCount}
         precedentsCount={precedents.length}
@@ -336,30 +339,11 @@ export default function App() {
         className="hidden"
       />
 
-      {errorMessage && (
-        <div className="max-w-7xl mx-auto mt-4 px-4 w-full">
-          <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start justify-between text-rose-900 text-xs sm:text-sm shadow-sm">
-            <div className="flex items-start space-x-3">
-              <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-rose-900">Atenção:</p>
-                <p className="mt-0.5 text-rose-800">{errorMessage}</p>
-              </div>
-            </div>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-rose-500 hover:text-rose-800 ml-3 p-1 rounded hover:bg-rose-100 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       <main className="flex-1 pb-16">
         {dataLoading ? (
-          <div className="max-w-4xl mx-auto py-20 flex items-center justify-center text-slate-400">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Carregando a base da GEMAP...
+          <div className="mx-auto flex max-w-4xl items-center justify-center py-24 text-sm text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Carregando a base da GEMAP…
           </div>
         ) : showAdmin ? (
           <AdminPage />
@@ -379,6 +363,7 @@ export default function App() {
                 <ProcessUploader
                   onStartAnalysis={handleStartAnalysis}
                   isAnalyzing={isAnalyzing}
+                  progressText={progressText}
                   activeRulesCount={activeRulesCount}
                   precedentsCount={precedents.length}
                   onOpenLegalDocs={() => setCurrentTab('legal-docs')}
@@ -437,16 +422,12 @@ export default function App() {
         />
       )}
 
-      <footer className="border-t border-slate-200 bg-white py-6 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
-          <div className="flex items-center space-x-2">
-            <span className="font-semibold text-slate-700">Análises de Processos SEI GEMAP</span>
-            <span>•</span>
-            <span>Módulo Especializado de Decisões e Pareceres</span>
-          </div>
-          <div className="font-mono text-[11px] text-slate-400">
-            Tríade Decisória • Jurisprudência &amp; Precedentes GEMAP
-          </div>
+      <footer className="mt-auto border-t border-slate-200 bg-white py-5">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-1.5 px-4 text-xs text-slate-500 sm:flex-row sm:px-6 lg:px-8">
+          <span className="font-semibold text-slate-600">Análise de Processos SEI · GEMAP</span>
+          <span className="font-data text-[11px] text-slate-400">
+            Identificação · Fundamentação · Minuta de Despacho
+          </span>
         </div>
       </footer>
     </div>

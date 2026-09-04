@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, Bot, User, Loader2, X, Sparkles, Copy, Check } from 'lucide-react';
 import { ProcessAnalysisResult, ProcessRule, ChatMessage } from '../types';
+import { streamSSE } from '../lib/apiClient';
 
 interface ProcessChatModalProps {
   isOpen: boolean;
@@ -78,40 +79,14 @@ export const ProcessChatModal: React.FC<ProcessChatModalProps> = ({
     };
 
     try {
-      const response = await fetch('/api/chat-process/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: query.trim(),
-          processContext: analysis,
-          history: historySnapshot,
-        }),
-      });
-      if (!response.ok || !response.body) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Erro ao comunicar com o assistente.');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const frames = buffer.split('\n\n');
-        buffer = frames.pop() || '';
-        for (const frame of frames) {
-          const evline = frame.split('\n').find((l) => l.startsWith('event:'));
-          const dataline = frame.split('\n').find((l) => l.startsWith('data:'));
-          if (!evline || !dataline) continue;
-          const event = evline.slice(6).trim();
-          const payload = JSON.parse(dataline.slice(5).trim());
+      await streamSSE(
+        '/api/chat-process/stream',
+        { message: query.trim(), processContext: analysis, history: historySnapshot },
+        (event, payload) => {
           if (event === 'delta') pushDelta(payload as string);
           else if (event === 'error') throw new Error(payload as string);
-        }
-      }
+        },
+      );
       if (!started) pushDelta('Sem resposta disponível.');
     } catch (err: any) {
       setMessages((prev) => [

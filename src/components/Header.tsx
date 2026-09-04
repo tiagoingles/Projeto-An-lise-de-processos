@@ -1,25 +1,25 @@
 import React from 'react';
-import {
-  Scale,
-  BookOpen,
-  History,
-  PlusCircle,
-  Download,
-  UploadCloud,
-  FileBadge,
-  Search,
-  Layers,
-} from 'lucide-react';
+import { BookOpen, History, Plus, Download, UploadCloud, FileBadge, Search, Scale } from 'lucide-react';
+
+type Tab = 'analysis' | 'topic' | 'legal-docs' | 'precedents' | 'history';
 
 interface HeaderProps {
-  currentTab: 'analysis' | 'topic' | 'legal-docs' | 'precedents' | 'history';
-  setCurrentTab: (tab: 'analysis' | 'topic' | 'legal-docs' | 'precedents' | 'history') => void;
+  currentTab: Tab;
+  setCurrentTab: (tab: Tab) => void;
   activeRulesCount: number;
   precedentsCount: number;
   onNewProcess: () => void;
   onExportKnowledge: () => void;
   onImportKnowledge: () => void;
 }
+
+const TABS: { id: Tab; label: string; icon: React.ElementType; badge?: 'rules' | 'precedents' }[] = [
+  { id: 'analysis', label: 'Analisar processo', icon: Scale },
+  { id: 'topic', label: 'Pesquisar assunto', icon: Search },
+  { id: 'legal-docs', label: 'Acervo legal', icon: BookOpen, badge: 'rules' },
+  { id: 'precedents', label: 'Precedentes', icon: FileBadge, badge: 'precedents' },
+  { id: 'history', label: 'Histórico', icon: History },
+];
 
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
@@ -31,151 +31,76 @@ export const Header: React.FC<HeaderProps> = ({
   onImportKnowledge,
 }) => {
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & Brand */}
-          <div
-            className="flex items-center space-x-3 cursor-pointer group"
-            onClick={() => setCurrentTab('analysis')}
-          >
-            <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shadow-xs group-hover:border-blue-500 transition-colors">
-              <Scale className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-                  SEI GEMAP
-                </span>
-                <span className="inline-block bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold">
-                  PRO
-                </span>
-              </div>
-              <p className="text-[10px] text-slate-500 hidden sm:block">
-                Análise de Processos Administrativos
-              </p>
-            </div>
-          </div>
-
-          {/* Navigation Tabs */}
-          <nav className="flex items-center space-x-1 sm:space-x-1.5 overflow-x-auto py-1">
-            {/* Tab 1: Analisar Processo */}
-            <button
-              id="tab-analysis"
-              onClick={() => setCurrentTab('analysis')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border ${
-                currentTab === 'analysis'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Scale className="w-3.5 h-3.5 text-blue-600" />
-              <span>Análise de Processo</span>
-            </button>
-
-            {/* Tab 2: Pesquisa de Assunto */}
-            <button
-              id="tab-topic"
-              onClick={() => setCurrentTab('topic')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border ${
-                currentTab === 'topic'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <Search className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Pesquisar Assunto</span>
-            </button>
-
-            {/* Tab 3: Upload de Documentos Legais */}
-            <button
-              id="tab-legal-docs"
-              onClick={() => setCurrentTab('legal-docs')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border ${
-                currentTab === 'legal-docs'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5 text-slate-600" />
-              <span>Documentos Legais</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                currentTab === 'legal-docs'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-slate-100 text-slate-600'
-              }`}>
-                {activeRulesCount}
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 items-center justify-between gap-4">
+          <button onClick={() => setCurrentTab('analysis')} className="flex items-center gap-2.5 shrink-0">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-white">
+              <Scale className="h-5 w-5" />
+            </span>
+            <span className="text-left leading-tight">
+              <span className="block text-sm font-bold tracking-tight text-slate-900">
+                Análise de Processos SEI
               </span>
-            </button>
+              <span className="block text-[11px] font-medium text-slate-500">GEMAP</span>
+            </span>
+          </button>
 
-            {/* Tab 4: Processos Reais */}
+          <div className="flex items-center gap-1.5">
             <button
-              id="tab-precedents"
-              onClick={() => setCurrentTab('precedents')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border ${
-                currentTab === 'precedents'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
+              onClick={onExportKnowledge}
+              title="Exportar backup (JSON)"
+              className="hidden rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 lg:block"
             >
-              <FileBadge className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Processos Reais</span>
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                currentTab === 'precedents'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-100 text-slate-600'
-              }`}>
-                {precedentsCount}
-              </span>
+              <Download className="h-4 w-4" />
             </button>
-
-            {/* Tab 5: Histórico */}
             <button
-              id="tab-history"
-              onClick={() => setCurrentTab('history')}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center space-x-1.5 border ${
-                currentTab === 'history'
-                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-xs'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
+              onClick={onImportKnowledge}
+              title="Importar backup (JSON)"
+              className="hidden rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 lg:block"
             >
-              <History className="w-3.5 h-3.5 text-slate-500" />
-              <span className="hidden md:inline">Histórico</span>
+              <UploadCloud className="h-4 w-4" />
             </button>
-          </nav>
-
-          {/* Right Actions */}
-          <div className="flex items-center space-x-2">
             <button
-              id="btn-new-process"
               onClick={onNewProcess}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5 shadow-xs transition-all"
-              title="Iniciar nova análise de processo SEI"
+              className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-sm transition-colors hover:bg-brand-700"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Novo Processo</span>
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Novo processo</span>
             </button>
-
-            <div className="hidden lg:flex items-center border-l border-slate-200 pl-2 space-x-1">
-              <button
-                id="btn-export-knowledge"
-                onClick={onExportKnowledge}
-                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                title="Exportar backup do acervo e precedentes (JSON)"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <button
-                id="btn-import-knowledge"
-                onClick={onImportKnowledge}
-                className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-                title="Importar backup do acervo (JSON)"
-              >
-                <UploadCloud className="w-4 h-4" />
-              </button>
-            </div>
           </div>
         </div>
+
+        <nav className="-mx-1 flex items-center gap-1 overflow-x-auto pb-2">
+          {TABS.map(({ id, label, icon: Icon, badge }) => {
+            const active = currentTab === id;
+            const count =
+              badge === 'rules' ? activeRulesCount : badge === 'precedents' ? precedentsCount : null;
+            return (
+              <button
+                key={id}
+                onClick={() => setCurrentTab(id)}
+                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+                  active
+                    ? 'bg-brand-50 text-brand-700'
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                }`}
+              >
+                <Icon className={`h-3.5 w-3.5 ${active ? 'text-brand-600' : ''}`} />
+                {label}
+                {count !== null && (
+                  <span
+                    className={`font-data rounded px-1.5 text-[11px] font-medium ${
+                      active ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
       </div>
     </header>
   );

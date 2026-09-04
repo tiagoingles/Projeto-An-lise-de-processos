@@ -113,6 +113,68 @@ aiRouter.post('/analyze-process', async (req, res) => {
   }
 });
 
+/** Mesma análise, com eventos de progresso (SSE). */
+aiRouter.post('/analyze-process/stream', async (req, res) => {
+  const parsed = analyzeInput.safeParse(req.body);
+  if (!parsed.success || (!parsed.data.pdfBase64 && !parsed.data.manualText)) {
+    return res.status(400).json({ error: 'Forneça o PDF dos autos (base64) ou o texto do processo.' });
+  }
+  const { pdfBase64, fileName, manualText, customPromptNotes } = parsed.data;
+  const email = req.user!.email;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+  const send = (event: string, data: unknown) =>
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    send('stage', 'Lendo os autos e identificando o tema do processo…');
+    const sourcePart: Part = pdfBase64
+      ? await preparePdfPart(pdfBase64, fileName || 'processo.pdf')
+      : { text: `TEXTO DOS AUTOS DO PROCESSO:\n\n${manualText}` };
+
+    const triage = await generateStructured<TriageResult>({
+      action: 'analyze-triage',
+      userEmail: email,
+      parts: [sourcePart, { text: triagePrompt }],
+      responseSchema: triageResponseSchema,
+      temperature: 0.1,
+    });
+
+    send('stage', `Tema: ${triage.tema}. Recuperando normas e precedentes relevantes…`);
+    const query = triageToQuery(triage, customPromptNotes);
+    const { rules, precedents } = await gatherContext(query);
+    const profile = await getProfile(email);
+
+    send('stage', `Analisando com ${rules.length} norma(s) e ${precedents.length} precedente(s) e redigindo a minuta…`);
+    const analysisParts: Part[] = [
+      sourcePart,
+      {
+        text: pdfBase64
+          ? `Arquivo processual analisado: "${fileName || 'processo.pdf'}". Leia todas as páginas e gere a análise completa conforme a estrutura solicitada.`
+          : 'Faça a leitura detalhada deste processo e produza a análise estruturada completa.',
+      },
+    ];
+    const analysis = await generateStructured<Record<string, unknown>>({
+      action: 'analyze-process',
+      userEmail: email,
+      processNumber: triage.numeroProcesso,
+      systemInstruction: buildAnalyzeProcessSystemInstruction({ rules, precedents, profile, customPromptNotes }),
+      parts: analysisParts,
+      responseSchema: analyzeProcessResponseSchema,
+      temperature: 0.2,
+    });
+
+    send('result', { analysis, retrieval: { rules: rules.length, precedents: precedents.length } });
+  } catch (err) {
+    send('error', (err as Error).message || 'Erro ao analisar o processo.');
+  } finally {
+    res.end();
+  }
+});
+
 /* ------------------------------ /chat-process ----------------------------- */
 
 const chatInput = z.object({
