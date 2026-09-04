@@ -13,7 +13,7 @@ import {
   Scale,
   FileBadge,
 } from 'lucide-react';
-import { SAMPLE_PROCESS_TEXT } from '../utils/storage';
+import { SAMPLE_PROCESS_TEXT } from '../lib/sample';
 
 interface ProcessUploaderProps {
   onStartAnalysis: (payload: {
