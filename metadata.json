@@ -1,0 +1,6 @@
+{
+  "name": "Análises de Processos SEI GEMAP",
+  "description": "Sistema de análise de processos do SEI para a GEMAP: descompactação e organização de acervo normativo em ZIP, pesquisa temática em pareceres e leis, banco de processos reais/jurisprudência interna e minutas automáticas de despacho SEI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
