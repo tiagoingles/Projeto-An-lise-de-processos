@@ -9,11 +9,34 @@ banco de precedentes da unidade, e entrega a minuta de Despacho SEI pronta.
 - **Banco:** PostgreSQL (Cloud SQL) via Drizzle ORM
 - **IA:** Gemini API (`@google/genai`) — uma única chave, configurada pelo administrador
 - **Login:** Google OAuth restrito a uma lista de e-mails autorizados
-- **Hospedagem:** Cloud Run + Cloud SQL
+- **Hospedagem:** Render + Neon (Opção B) ou Cloud Run + Cloud SQL (Opção A)
 
 ---
 
-## Checklist de configuração (uma vez)
+## Opção B — Neon + Render (sem faturamento do Google Cloud)
+
+Se o faturamento do Google Cloud estiver bloqueado (conta corporativa), este caminho não
+usa Cloud SQL nem Cloud Run:
+
+1. **Banco:** criar projeto grátis no [neon.tech](https://neon.tech), copiar a *connection
+   string* (`postgresql://…?sslmode=require`) → vira `DATABASE_URL`. No SQL Editor do Neon:
+   `CREATE EXTENSION IF NOT EXISTS vector;`
+2. **Chave Gemini:** [aistudio.google.com](https://aistudio.google.com) com um **Gmail
+   pessoal** → *Get API key* (nível grátis já funciona para o piloto).
+3. **Tabelas:** localmente, com `DATABASE_URL` apontando para o Neon:
+   `npm install && npm run db:migrate`.
+4. **Deploy:** em [render.com](https://render.com) → *New + → Blueprint* → conectar este
+   repo (o `render.yaml` já está pronto). O Render pede `GEMINI_API_KEY`,
+   `GOOGLE_CLIENT_ID`, `BOOTSTRAP_ADMIN_EMAIL` e `DATABASE_URL`.
+5. **OAuth:** criar o *ID do cliente OAuth (Web)* no
+   [console.cloud.google.com](https://console.cloud.google.com) (não precisa de
+   faturamento) com as origens `http://localhost:3000` e a URL `…onrender.com`.
+
+O código é o mesmo — `DATABASE_URL` cobre Neon, Cloud SQL (via proxy) e Postgres local.
+
+---
+
+## Opção A — Checklist de configuração no Google Cloud (uma vez)
 
 Tudo abaixo é feito **por você (Tiago)** na conta Google da GEMAP. A equipe só faz login.
 

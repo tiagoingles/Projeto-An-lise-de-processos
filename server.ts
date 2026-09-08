@@ -48,7 +48,9 @@ async function start() {
     // Indexa embeddings que estejam faltando (não bloqueia o start).
     import('./server/lib/rag.js')
       .then(({ backfillMissing }) => backfillMissing())
-      .catch((err) => console.error('[server] backfill de embeddings:', err?.message));
+      .catch((err) =>
+        console.error('[server] backfill de embeddings adiado:', err?.message || err),
+      );
   });
 }
 

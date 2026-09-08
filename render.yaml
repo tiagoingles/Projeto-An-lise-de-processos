@@ -1,0 +1,26 @@
+# Render Blueprint — cria o serviço web automaticamente.
+# Em render.com: New + -> Blueprint -> conecta este repositório.
+# Os valores marcados como "sync: false" o Render pede na hora (não ficam no Git).
+services:
+  - type: web
+    name: sei-gemap
+    runtime: node
+    plan: free
+    region: oregon
+    branch: feat/sprint-1-fundacao
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
