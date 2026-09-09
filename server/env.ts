@@ -2,12 +2,21 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const isProd = process.env.NODE_ENV === 'production';
+const pendingVars: string[] = [];
+
 function required(name: string): string {
   const value = process.env[name];
   if (!value || value.trim() === '' || value.startsWith('MY_')) {
-    throw new Error(
-      `Variável de ambiente obrigatória ausente: ${name}. Confira o arquivo .env ou os secrets do Cloud Run.`,
-    );
+    // Em produção, falha na hora. Durante o setup local (ex.: rodar as migrations
+    // antes de ter a chave da IA), apenas avisa e segue.
+    if (isProd) {
+      throw new Error(
+        `Variável de ambiente obrigatória ausente: ${name}. Configure os secrets no Render (ou no .env).`,
+      );
+    }
+    pendingVars.push(name);
+    return `__pendente_${name}__`;
   }
   return value.trim();
 }
@@ -15,8 +24,6 @@ function required(name: string): string {
 function optional(name: string, fallback = ''): string {
   return (process.env[name] || fallback).trim();
 }
-
-const isProd = process.env.NODE_ENV === 'production';
 
 /**
  * Configuração central. Tudo que o servidor precisa vem daqui — nunca leia
@@ -58,6 +65,12 @@ export const env = {
    */
   bootstrapAdminEmail: optional('BOOTSTRAP_ADMIN_EMAIL').toLowerCase(),
 } as const;
+
+if (pendingVars.length > 0) {
+  console.warn(
+    `[env] variáveis ainda não configuradas (ok durante o setup): ${pendingVars.join(', ')}`,
+  );
+}
 
 export function resolvePgConfig() {
   if (env.cloudSql.instance) {
