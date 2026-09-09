@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     region: oregon
-    branch: feat/sprint-1-fundacao
+    branch: main
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
