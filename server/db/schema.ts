@@ -18,23 +18,16 @@ export const EMBEDDING_DIM = 768;
  * autorizados. O histórico e o perfil de trabalho são por usuário.
  */
 
-/** Lista de e-mails que podem entrar. Gerenciada pelos admins. */
+/** Usuários do sistema: e-mail, nome, senha (hash) e papel. Geridos pelos admins. */
 export const allowedUsers = pgTable('allowed_users', {
   email: text('email').primaryKey(),
+  name: text('name'),
+  passwordHash: text('password_hash'),
   role: text('role', { enum: ['admin', 'member'] })
     .notNull()
     .default('member'),
   note: text('note'),
   addedByEmail: text('added_by_email'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
-/** Preenchido no primeiro login bem-sucedido de cada pessoa. */
-export const users = pgTable('users', {
-  id: text('id').primaryKey(), // Google "sub"
-  email: text('email').notNull().unique(),
-  name: text('name'),
-  picture: text('picture'),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

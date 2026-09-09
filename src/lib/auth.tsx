@@ -5,7 +5,6 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  picture: string;
   role: 'admin' | 'member';
 }
 
@@ -13,7 +12,7 @@ interface AuthState {
   user: AuthUser | null;
   loading: boolean;
   error: string | null;
-  loginWithGoogle: (credential: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -32,10 +31,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  const loginWithGoogle = useCallback(async (credential: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setError(null);
     try {
-      const data = await api.post<{ user: AuthUser }>('/api/auth/google', { credential });
+      const data = await api.post<{ user: AuthUser }>('/api/auth/login', { email, password });
       setUser(data.user);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Falha ao entrar. Tente novamente.';
@@ -50,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

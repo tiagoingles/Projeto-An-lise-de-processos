@@ -15,6 +15,13 @@
       "when": 1788487162779,
       "tag": "0001_rag",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788917484504,
+      "tag": "0002_auth_senha",
+      "breakpoints": true
     }
   ]
 }

@@ -17,11 +17,6 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// O client precisa do Client ID do Google para renderizar o botão de login.
-app.get('/api/config', (_req, res) => {
-  res.json({ googleClientId: env.googleClientId });
-});
-
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api', knowledgeRouter);

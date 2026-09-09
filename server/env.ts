@@ -38,9 +38,6 @@ export const env = {
   geminiModel: optional('GEMINI_MODEL', 'gemini-3.8-flash'),
   geminiEmbeddingModel: optional('GEMINI_EMBEDDING_MODEL', 'text-embedding-004'),
 
-  /** OAuth do Google — o mesmo Client ID é usado no front (VITE_GOOGLE_CLIENT_ID). */
-  googleClientId: required('GOOGLE_CLIENT_ID'),
-
   /** Segredo para assinar o cookie de sessão (JWT). Gere com: openssl rand -hex 32 */
   sessionSecret: required('SESSION_SECRET'),
   sessionDays: Number(optional('SESSION_DAYS', '7')),
@@ -60,10 +57,12 @@ export const env = {
   },
 
   /**
-   * E-mail que vira admin automaticamente no primeiro login (bootstrap).
-   * Depois disso, admins gerenciam a lista pela tela de administração.
+   * Primeiro acesso: no login inicial com este e-mail + esta senha, a conta é
+   * criada como administradora e a senha fica gravada (com hash). Depois disso,
+   * os admins gerenciam todo mundo pela tela de administração.
    */
   bootstrapAdminEmail: optional('BOOTSTRAP_ADMIN_EMAIL').toLowerCase(),
+  bootstrapAdminPassword: optional('BOOTSTRAP_ADMIN_PASSWORD'),
 } as const;
 
 if (pendingVars.length > 0) {

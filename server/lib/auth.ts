@@ -1,19 +1,17 @@
 import type { NextFunction, Request, Response } from 'express';
-import { OAuth2Client } from 'google-auth-library';
+import bcrypt from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import { eq } from 'drizzle-orm';
 import { env } from '../env.js';
 import { db, schema } from '../db/client.js';
 
 const COOKIE_NAME = 'sei_session';
-const oauthClient = new OAuth2Client(env.googleClientId);
 const sessionKey = new TextEncoder().encode(env.sessionSecret);
 
 export interface SessionUser {
-  id: string;
+  id: string; // = e-mail
   email: string;
   name: string;
-  picture: string;
   role: 'admin' | 'member';
 }
 
@@ -26,22 +24,12 @@ declare global {
   }
 }
 
-/** Verifica o ID token do Google vindo do front (@react-oauth/google). */
-export async function verifyGoogleCredential(credential: string) {
-  const ticket = await oauthClient.verifyIdToken({
-    idToken: credential,
-    audience: env.googleClientId,
-  });
-  const payload = ticket.getPayload();
-  if (!payload?.email || !payload.email_verified) {
-    throw new Error('Conta Google sem e-mail verificado.');
-  }
-  return {
-    id: payload.sub,
-    email: payload.email.toLowerCase(),
-    name: payload.name || payload.email,
-    picture: payload.picture || '',
-  };
+export function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain, 11);
+}
+
+export function verifyPassword(plain: string, hash: string): Promise<boolean> {
+  return bcrypt.compare(plain, hash);
 }
 
 /** Consulta a lista de autorizados. Retorna o papel ou null se não autorizado. */
@@ -54,12 +42,7 @@ export async function resolveRole(email: string): Promise<'admin' | 'member' | n
 }
 
 export async function issueSession(res: Response, user: SessionUser) {
-  const token = await new SignJWT({
-    email: user.email,
-    name: user.name,
-    picture: user.picture,
-    role: user.role,
-  })
+  const token = await new SignJWT({ email: user.email, name: user.name, role: user.role })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(user.id)
     .setIssuedAt()
@@ -88,7 +71,6 @@ async function readSession(req: Request): Promise<SessionUser | null> {
       id: String(payload.sub),
       email: String(payload.email),
       name: String(payload.name || ''),
-      picture: String(payload.picture || ''),
       role: (payload.role as 'admin' | 'member') || 'member',
     };
   } catch {
@@ -121,8 +103,4 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     }
     next();
   });
-}
-
-export async function optionalUser(req: Request): Promise<SessionUser | null> {
-  return readSession(req);
 }

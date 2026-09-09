@@ -5,101 +5,61 @@ lê os autos (PDF ou texto), resume os fatos, cruza com o acervo de leis/parecer
 banco de precedentes da unidade, e entrega a minuta de Despacho SEI pronta.
 
 - **Front:** React 19 + Vite + TypeScript + Tailwind
-- **Back:** Express (Node 22) — API + servидor da SPA
-- **Banco:** PostgreSQL (Cloud SQL) via Drizzle ORM
+- **Back:** Express (Node 22) — API + servidor da SPA
+- **Banco:** PostgreSQL (Neon) via Drizzle ORM + pgvector
 - **IA:** Gemini API (`@google/genai`) — uma única chave, configurada pelo administrador
-- **Login:** Google OAuth restrito a uma lista de e-mails autorizados
-- **Hospedagem:** Render + Neon (Opção B) ou Cloud Run + Cloud SQL (Opção A)
+- **Login:** e-mail + senha, contas geridas dentro do app (hash bcrypt, sessão em cookie httpOnly)
+- **Hospedagem:** Render (o `render.yaml` já configura o serviço)
 
 ---
 
-## Opção B — Neon + Render (sem faturamento do Google Cloud)
+## Configuração (uma vez)
 
-Se o faturamento do Google Cloud estiver bloqueado (conta corporativa), este caminho não
-usa Cloud SQL nem Cloud Run:
+### 1. Banco — Neon
 
-1. **Banco:** criar projeto grátis no [neon.tech](https://neon.tech), copiar a *connection
-   string* (`postgresql://…?sslmode=require`) → vira `DATABASE_URL`. No SQL Editor do Neon:
-   `CREATE EXTENSION IF NOT EXISTS vector;`
-2. **Chave Gemini:** [aistudio.google.com](https://aistudio.google.com) com um **Gmail
-   pessoal** → *Get API key* (nível grátis já funciona para o piloto).
-3. **Tabelas:** localmente, com `DATABASE_URL` apontando para o Neon:
-   `npm install && npm run db:migrate`.
-4. **Deploy:** em [render.com](https://render.com) → *New + → Blueprint* → conectar este
-   repo (o `render.yaml` já está pronto). O Render pede `GEMINI_API_KEY`,
-   `GOOGLE_CLIENT_ID`, `BOOTSTRAP_ADMIN_EMAIL` e `DATABASE_URL`.
-5. **OAuth:** criar o *ID do cliente OAuth (Web)* no
-   [console.cloud.google.com](https://console.cloud.google.com) (não precisa de
-   faturamento) com as origens `http://localhost:3000` e a URL `…onrender.com`.
+Crie um projeto grátis em [neon.tech](https://neon.tech) e copie a *connection string*
+(`postgresql://…?sslmode=require`). Ela vira `DATABASE_URL`.
 
-O código é o mesmo — `DATABASE_URL` cobre Neon, Cloud SQL (via proxy) e Postgres local.
+### 2. Chave da IA — Gemini
 
----
+[aistudio.google.com](https://aistudio.google.com) → *Get API key*. O nível gratuito já
+funciona para o piloto; para produção com dado público, use um projeto com faturamento
+(tier pago — os prompts não são usados para treino).
 
-## Opção A — Checklist de configuração no Google Cloud (uma vez)
-
-Tudo abaixo é feito **por você (Tiago)** na conta Google da GEMAP. A equipe só faz login.
-
-### 1. Banco — Cloud SQL
-
-```bash
-gcloud sql instances create sei-gemap-db \
-  --database-version=POSTGRES_16 --tier=db-f1-micro --region=us-central1
-gcloud sql databases create sei_gemap --instance=sei-gemap-db
-gcloud sql users set-password postgres --instance=sei-gemap-db --password=UMA_SENHA_FORTE
-```
-
-Anote o **Instance connection name** (`projeto:us-central1:sei-gemap-db`).
-
-### 2. Chave da Gemini
-
-Em [aistudio.google.com](https://aistudio.google.com) → **Get API key** → criar chave num
-projeto com **faturamento ativo** (tier pago — os prompts não são usados para treino).
-Defina um **teto de gasto** no projeto do Google Cloud.
-
-### 3. Credencial OAuth
-
-[console.cloud.google.com](https://console.cloud.google.com) → **APIs e serviços → Credenciais**
-→ *Criar credenciais → ID do cliente OAuth → Aplicativo da Web*.
-
-- Origens JavaScript autorizadas: `http://localhost:3000` e a URL do Cloud Run
-- Anote o **Client ID** (`xxxx.apps.googleusercontent.com`)
-
-### 4. Variáveis de ambiente
+### 3. Variáveis de ambiente
 
 ```bash
 cp .env.example .env
-# preencha GEMINI_API_KEY, GOOGLE_CLIENT_ID, SESSION_SECRET (openssl rand -hex 32),
-# BOOTSTRAP_ADMIN_EMAIL (e-mail da sua esposa) e a conexão do banco.
 ```
 
-### 5. Criar as tabelas
+Preencha: `DATABASE_URL`, `GEMINI_API_KEY`, `SESSION_SECRET` (`openssl rand -hex 32`),
+`BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` (e-mail e senha da administradora).
+
+### 4. Criar as tabelas
 
 ```bash
 npm install
 npm run db:migrate
 ```
 
-Isso cria o schema, os 9 temas padrão e marca `BOOTSTRAP_ADMIN_EMAIL` como administrador.
+Cria o schema, ativa a extensão `vector`, semeia os 9 temas padrão e autoriza o e-mail
+do `BOOTSTRAP_ADMIN_EMAIL` como administrador.
 
-### 6. Migrar o acervo atual
+### 5. Deploy no Render
 
-Entre no app, vá em **Administração → Usuários** (você já é admin) e depois use o botão de
-importar backup (ícone de upload no topo) apontando para o `sei_gemap_backup_*.json`
-exportado da versão antiga. Regras, precedentes e temas entram na base compartilhada.
+[render.com](https://render.com) → *New +* → *Blueprint* → conecte este repositório
+(branch `main`). O Render lê o `render.yaml` e pede os valores marcados como segredo:
+`DATABASE_URL`, `GEMINI_API_KEY`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD`
+(o `SESSION_SECRET` é gerado automaticamente).
 
-### 7. Deploy
+Quando ficar **Live**, abra a URL, faça login com o e-mail/senha de bootstrap, e cadastre
+o resto da equipe em **Administração → Usuários** (nome, e-mail, senha inicial).
 
-```bash
-gcloud run deploy sei-gemap \
-  --source . --region us-central1 --allow-unauthenticated \
-  --add-cloudsql-instances=projeto:us-central1:sei-gemap-db \
-  --set-env-vars="INSTANCE_CONNECTION_NAME=projeto:us-central1:sei-gemap-db,DB_USER=postgres,DB_NAME=sei_gemap" \
-  --set-secrets="GEMINI_API_KEY=gemini-key:latest,GOOGLE_CLIENT_ID=google-client-id:latest,SESSION_SECRET=session-secret:latest,DB_PASSWORD=db-password:latest"
-```
+### 6. Migrar o acervo antigo
 
-(`--allow-unauthenticated` porque o controle de acesso é feito pelo login Google + lista de
-e-mails, não pelo IAM do Cloud Run.)
+Em **Administração** (você já é admin), use o botão de importar backup (ícone de upload no
+topo) apontando para o `sei_gemap_backup_*.json` da versão anterior. Depois, em
+**Administração → Índice de busca**, clique em **Reindexar tudo**.
 
 ---
 
@@ -112,7 +72,7 @@ npm run lint      # typecheck front + back
 npm run build     # gera dist/
 ```
 
-Precisa de um Postgres local (ou o Cloud SQL Auth Proxy) e um `.env` preenchido.
+Precisa de um `.env` preenchido (o `DATABASE_URL` pode apontar direto para o Neon).
 
 ## Estrutura
 
@@ -120,33 +80,30 @@ Precisa de um Postgres local (ou o Cloud SQL Auth Proxy) e um `.env` preenchido.
 server/
   env.ts              config central (única fonte de process.env)
   db/                 schema Drizzle, cliente pg, migrations, script de migração
-  lib/                auth (Google + sessão JWT), cliente Gemini (retry/timeout/auditoria), repos
+  lib/                auth (senha + sessão JWT), cliente Gemini (retry/timeout/auditoria),
+                      rag (pgvector), repos
   prompts/            instruções de sistema e schemas de resposta, versionáveis
-  routes/             auth · admin · knowledge (CRUD) · ai (5 endpoints Gemini)
+  routes/             auth · admin · knowledge (CRUD) · ai (endpoints Gemini)
 src/
-  lib/                apiClient, auth (contexto React), data (camada de dados), sample
-  components/         UI — inclui LoginScreen, AccountBar, AdminPage (novos)
+  lib/                apiClient, auth (contexto React), data (camada de dados), toast, sample
+  components/         UI — LoginScreen, AccountBar, AdminPage, ...
 ```
 
-## Sprint 1 — fundação
+## Histórico
 
-- Login Google + lista de autorizados + sessão em cookie httpOnly
-- Acervo, precedentes, temas e histórico saíram do `localStorage` para o Postgres compartilhado
-- Trilha de auditoria: toda chamada à IA grava `usage_events` (quem, quando, tokens, status)
-- `server.ts` de 950 linhas quebrado em módulos; validação Zod; cliente Gemini com retry e reparo de JSON
-- Tela de Administração: gerenciar e-mails autorizados + painel de uso da equipe
-- Importador do backup antigo
+**Sprint 1 — fundação.** Login + lista de autorizados + sessão httpOnly. Acervo,
+precedentes, temas e histórico saíram do `localStorage` para o Postgres compartilhado.
+Trilha de auditoria (`usage_events`). `server.ts` monolítico quebrado em módulos; validação
+Zod; cliente Gemini com retry e reparo de JSON. Tela de Administração. Importador de backup.
 
-## Sprint 2 — inteligência
+**Sprint 2 — inteligência.** RAG com pgvector (`rule_chunks`, `precedent_embeddings`): a
+análise faz uma triagem barata do processo e recupera só os trechos relevantes, em vez de
+mandar o acervo inteiro no prompt (fallback para "acervo completo" enquanto não há índice).
+Files API para PDFs grandes. Streaming no chat e no progresso da análise.
 
-- **RAG com pgvector**: `text-embedding-004` indexa o acervo (`rule_chunks`) e os precedentes
-  (`precedent_embeddings`). A análise faz uma triagem barata do processo, monta uma consulta e
-  recupera só os ~14 trechos e ~6 precedentes relevantes — em vez de mandar tudo no prompt.
-  Fallback automático para "acervo completo" enquanto não há índice.
-- **Files API**: PDFs acima de 14 MB (processos SEI de centenas de páginas) sobem pela Files API
-  em vez de irem inline no request; o mesmo arquivo é reaproveitado nas duas passadas.
-- **Streaming**: o chat do processo responde token a token (`/api/chat-process/stream`, SSE).
-- Admin → **Índice de busca**: status da indexação + botão "Reindexar tudo" (rodar após importar
-  o backup). O servidor também indexa embeddings faltantes no start.
-- Requer a extensão `vector` no Postgres (a migration roda `CREATE EXTENSION IF NOT EXISTS vector`;
-  Cloud SQL e Neon já suportam; local precisa do pacote pgvector instalado).
+**Sprint 3 — design e uso.** Sistema de design (Public Sans / IBM Plex Mono / Lora, paleta
+institucional, cores semânticas de decisão). Progresso real na análise. Toasts no lugar de
+`alert()`. Telas revisadas; minuta em serif.
+
+**Pós-sprints.** Migração Cloud SQL/Cloud Run → Neon/Render (sem faturamento Google Cloud).
+Login Google → e-mail + senha geridos no app (bcrypt).

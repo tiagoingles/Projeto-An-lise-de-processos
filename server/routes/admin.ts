@@ -3,36 +3,93 @@ import { Router } from 'express';
 import { desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { db, schema } from '../db/client.js';
-import { requireAdmin } from '../lib/auth.js';
+import { hashPassword, requireAdmin } from '../lib/auth.js';
 import { reindexAll } from '../lib/rag.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
 
-/* ---------------------------- Usuários autorizados --------------------------- */
+/* ---------------------------- Usuários --------------------------- */
+
+/** Nunca devolve o hash de senha; só se a conta já tem senha definida. */
+function safeUser(u: typeof schema.allowedUsers.$inferSelect) {
+  const { passwordHash, ...rest } = u;
+  return { ...rest, hasPassword: !!passwordHash };
+}
+
+async function listUsers() {
+  const rows = await db
+    .select()
+    .from(schema.allowedUsers)
+    .orderBy(desc(schema.allowedUsers.createdAt));
+  return rows.map(safeUser);
+}
 
 adminRouter.get('/allowed-users', async (_req, res) => {
-  res.json(await db.select().from(schema.allowedUsers).orderBy(desc(schema.allowedUsers.createdAt)));
+  res.json(await listUsers());
 });
 
-const allowInput = z.object({
+const createInput = z.object({
   email: z.string().email(),
+  name: z.string().trim().min(1).optional(),
+  password: z.string().min(6),
   role: z.enum(['admin', 'member']).default('member'),
   note: z.string().optional(),
 });
 
 adminRouter.post('/allowed-users', async (req, res) => {
-  const parsed = allowInput.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'E-mail inválido.' });
+  const parsed = createInput.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'E-mail inválido ou senha com menos de 6 caracteres.' });
+  }
   const email = parsed.data.email.toLowerCase();
+  const passwordHash = await hashPassword(parsed.data.password);
   await db
     .insert(schema.allowedUsers)
-    .values({ email, role: parsed.data.role, note: parsed.data.note, addedByEmail: req.user!.email })
+    .values({
+      email,
+      name: parsed.data.name,
+      passwordHash,
+      role: parsed.data.role,
+      note: parsed.data.note,
+      addedByEmail: req.user!.email,
+    })
     .onConflictDoUpdate({
       target: schema.allowedUsers.email,
-      set: { role: parsed.data.role, note: parsed.data.note },
+      set: {
+        name: parsed.data.name,
+        passwordHash,
+        role: parsed.data.role,
+        note: parsed.data.note,
+      },
     });
-  res.json(await db.select().from(schema.allowedUsers).orderBy(desc(schema.allowedUsers.createdAt)));
+  res.json(await listUsers());
+});
+
+const patchInput = z.object({
+  name: z.string().trim().min(1).optional(),
+  password: z.string().min(6).optional(),
+  role: z.enum(['admin', 'member']).optional(),
+});
+
+adminRouter.patch('/allowed-users/:email', async (req, res) => {
+  const parsed = patchInput.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Dados inválidos.' });
+  const email = req.params.email.toLowerCase();
+
+  const set: Record<string, unknown> = {};
+  if (parsed.data.name) set.name = parsed.data.name;
+  if (parsed.data.role) set.role = parsed.data.role;
+  if (parsed.data.password) set.passwordHash = await hashPassword(parsed.data.password);
+  if (Object.keys(set).length === 0) return res.status(400).json({ error: 'Nada para alterar.' });
+
+  const [row] = await db
+    .update(schema.allowedUsers)
+    .set(set)
+    .where(eq(schema.allowedUsers.email, email))
+    .returning();
+  if (!row) return res.status(404).json({ error: 'Usuário não encontrado.' });
+  res.json(await listUsers());
 });
 
 adminRouter.delete('/allowed-users/:email', async (req, res) => {

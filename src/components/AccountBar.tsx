@@ -28,11 +28,7 @@ export const AccountBar: React.FC<AccountBarProps> = ({ onToggleAdmin, adminActi
             </button>
           )}
           <span className="flex items-center gap-1.5 text-brand-100">
-            {user.picture ? (
-              <img src={user.picture} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" />
-            ) : (
-              <ShieldCheck className="w-3.5 h-3.5" />
-            )}
+            <ShieldCheck className="h-3.5 w-3.5" />
             {user.name || user.email}
           </span>
           <button

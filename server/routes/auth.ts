@@ -2,59 +2,101 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/client.js';
+import { env } from '../env.js';
 import {
   clearSession,
+  hashPassword,
   issueSession,
   requireAuth,
-  resolveRole,
-  verifyGoogleCredential,
+  verifyPassword,
 } from '../lib/auth.js';
 
 export const authRouter = Router();
 
-const loginSchema = z.object({ credential: z.string().min(10) });
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
 
-authRouter.post('/google', async (req, res) => {
+// Freio simples contra tentativa de força bruta (por processo).
+const attempts = new Map<string, { count: number; until: number }>();
+function throttled(key: string): boolean {
+  const rec = attempts.get(key);
+  return !!rec && rec.count >= 8 && Date.now() < rec.until;
+}
+function registerFail(key: string) {
+  const rec = attempts.get(key) || { count: 0, until: 0 };
+  rec.count += 1;
+  rec.until = Date.now() + 10 * 60 * 1000;
+  attempts.set(key, rec);
+}
+
+authRouter.post('/login', async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Credencial do Google ausente.' });
+    return res.status(400).json({ error: 'Informe e-mail e senha.' });
+  }
+  const email = parsed.data.email.toLowerCase();
+  const { password } = parsed.data;
+
+  if (throttled(email)) {
+    return res
+      .status(429)
+      .json({ error: 'Muitas tentativas. Aguarde alguns minutos e tente de novo.' });
   }
 
-  let profile;
-  try {
-    profile = await verifyGoogleCredential(parsed.data.credential);
-  } catch {
-    return res.status(401).json({ error: 'Não foi possível validar sua conta Google.' });
-  }
+  const [row] = await db
+    .select()
+    .from(schema.allowedUsers)
+    .where(eq(schema.allowedUsers.email, email));
 
-  const role = await resolveRole(profile.email);
-  if (!role) {
+  if (!row) {
+    registerFail(email);
     return res.status(403).json({
-      error: `O e-mail ${profile.email} não está autorizado a usar o sistema. Solicite acesso ao administrador da GEMAP.`,
+      error: 'E-mail não autorizado. Peça para o administrador cadastrar o seu acesso.',
     });
   }
 
-  await db
-    .insert(schema.users)
-    .values({
-      id: profile.id,
-      email: profile.email,
-      name: profile.name,
-      picture: profile.picture,
-      lastLoginAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: schema.users.id,
-      set: { email: profile.email, name: profile.name, picture: profile.picture, lastLoginAt: new Date() },
+  // Primeiro acesso do admin de bootstrap: define a senha a partir do ambiente.
+  if (!row.passwordHash) {
+    if (
+      email === env.bootstrapAdminEmail &&
+      env.bootstrapAdminPassword &&
+      password === env.bootstrapAdminPassword
+    ) {
+      const hash = await hashPassword(password);
+      await db
+        .update(schema.allowedUsers)
+        .set({ passwordHash: hash, role: 'admin', lastLoginAt: new Date() })
+        .where(eq(schema.allowedUsers.email, email));
+      await db
+        .insert(schema.workProfiles)
+        .values({ ownerEmail: email })
+        .onConflictDoNothing();
+      const user = { id: email, email, name: row.name || email, role: 'admin' as const };
+      await issueSession(res, user);
+      return res.json({ user });
+    }
+    registerFail(email);
+    return res.status(401).json({
+      error: 'Senha ainda não definida para esta conta. Fale com o administrador.',
     });
+  }
 
-  // Garante um perfil de trabalho inicial.
+  const ok = await verifyPassword(password, row.passwordHash);
+  if (!ok) {
+    registerFail(email);
+    return res.status(401).json({ error: 'E-mail ou senha incorretos.' });
+  }
+
+  attempts.delete(email);
   await db
-    .insert(schema.workProfiles)
-    .values({ ownerEmail: profile.email })
-    .onConflictDoNothing();
+    .update(schema.allowedUsers)
+    .set({ lastLoginAt: new Date() })
+    .where(eq(schema.allowedUsers.email, email));
+  await db.insert(schema.workProfiles).values({ ownerEmail: email }).onConflictDoNothing();
 
-  const user = { ...profile, role };
+  const user = { id: email, email, name: row.name || email, role: row.role };
   await issueSession(res, user);
   res.json({ user });
 });
